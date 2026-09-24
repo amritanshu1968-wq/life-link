@@ -1,0 +1,365 @@
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// -------------------------------------------------------------
+// ENUMS
+// -------------------------------------------------------------
+
+enum Role {
+  DONOR
+  REQUESTER
+  HOSPITAL
+  BLOOD_BANK
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  INACTIVE
+}
+
+enum BloodGroup {
+  A_POSITIVE  @map("A+")
+  A_NEGATIVE  @map("A-")
+  B_POSITIVE  @map("B+")
+  B_NEGATIVE  @map("B-")
+  AB_POSITIVE @map("AB+")
+  AB_NEGATIVE @map("AB-")
+  O_POSITIVE  @map("O+")
+  O_NEGATIVE  @map("O-")
+}
+
+enum Urgency {
+  NORMAL
+  URGENT
+  EMERGENCY
+}
+
+enum RequestStatus {
+  OPEN
+  MATCHING
+  RESPONSES_RECEIVED
+  DONOR_CONFIRMED
+  PARTIALLY_FULFILLED
+  FULFILLED
+  CANCELLED
+  EXPIRED
+}
+
+enum ResponseStatus {
+  ACCEPTED
+  DECLINED
+  MAYBE
+  WITHDRAWN
+}
+
+enum VerificationStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+  SUSPENDED
+}
+
+enum InventoryStatus {
+  AVAILABLE
+  LOW
+  OUT_OF_STOCK
+  EXPIRED
+}
+
+enum NotificationType {
+  NEW_REQUEST
+  MATCHING_REQUEST
+  DONOR_ACCEPTED
+  DONOR_WITHDREW
+  REQUEST_FULFILLED
+  REQUEST_CANCELLED
+  REQUEST_EXPIRED
+  VERIFICATION_APPROVED
+  VERIFICATION_REJECTED
+  EMERGENCY_ESCALATION
+}
+
+enum VerificationEntityType {
+  HOSPITAL
+  BLOOD_BANK
+  DONOR
+}
+
+enum AIAnalysisType {
+  DEMAND_FORECAST
+  SUSPICIOUS_ACTIVITY
+}
+
+// -------------------------------------------------------------
+// MODELS
+// -------------------------------------------------------------
+
+model User {
+  id            String         @id @default(uuid())
+  name          String
+  email         String         @unique
+  phone         String         @unique
+  passwordHash  String         @map("password_hash")
+  role          Role           @default(DONOR)
+  status        UserStatus     @default(ACTIVE)
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+
+  // Relationships
+  donorProfile      DonorProfile?
+  patientProfile    PatientProfile?
+  hospitalProfile   Hospital?
+  bloodBankProfile  BloodBank?
+  bloodRequests     BloodRequest[]     @relation("UserBloodRequests")
+  notifications     Notification[]
+  verifications     Verification[]
+  auditLogs         AuditLog[]
+  emergencyContacts EmergencyContact[]
+
+  @@index([email])
+  @@index([role])
+  @@index([status])
+  @@map("users")
+}
+
+model DonorProfile {
+  id                     String             @id @default(uuid())
+  userId                 String             @unique @map("user_id")
+  bloodGroup             BloodGroup         @map("blood_group")
+  city                   String
+  area                   String
+  postalCode             String             @map("postal_code")
+  latitude               Float?
+  longitude              Float?
+  isAvailable            Boolean            @default(true) @map("is_available")
+  verificationStatus     VerificationStatus @default(VERIFIED) @map("verification_status")
+  lastDonationDate       DateTime?          @map("last_donation_date")
+  notificationPreference String             @default("IN_APP") @map("notification_preference")
+  createdAt              DateTime           @default(now()) @map("created_at")
+  updatedAt              DateTime           @updatedAt @map("updated_at")
+
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  donorResponses  DonorResponse[]
+  donationRecords DonationRecord[]
+
+  @@index([bloodGroup, isAvailable, city, verificationStatus])
+  @@map("donor_profiles")
+}
+
+model PatientProfile {
+  id               String   @id @default(uuid())
+  userId           String   @unique @map("user_id")
+  basicInformation String?  @map("basic_information")
+  city             String
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("patient_profiles")
+}
+
+model Hospital {
+  id                 String             @id @default(uuid())
+  userId             String             @unique @map("user_id")
+  hospitalName       String             @map("hospital_name")
+  address            String
+  city               String
+  area               String
+  postalCode         String             @map("postal_code")
+  latitude           Float?
+  longitude          Float?
+  verificationStatus VerificationStatus @default(PENDING) @map("verification_status")
+  createdAt          DateTime           @default(now()) @map("created_at")
+  updatedAt          DateTime           @updatedAt @map("updated_at")
+
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bloodRequests   BloodRequest[]
+  donationRecords DonationRecord[]
+
+  @@map("hospitals")
+}
+
+model BloodBank {
+  id                 String             @id @default(uuid())
+  userId             String             @unique @map("user_id")
+  bankName           String             @map("bank_name")
+  address            String
+  city               String
+  area               String
+  postalCode         String             @map("postal_code")
+  latitude           Float?
+  longitude          Float?
+  verificationStatus VerificationStatus @default(PENDING) @map("verification_status")
+  createdAt          DateTime           @default(now()) @map("created_at")
+  updatedAt          DateTime           @updatedAt @map("updated_at")
+
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bloodInventory BloodInventory[]
+
+  @@map("blood_banks")
+}
+
+model BloodRequest {
+  id               String        @id @default(uuid())
+  requestCode      String?       @unique @map("request_code")
+  requesterId      String        @map("requester_id")
+  hospitalId       String?       @map("hospital_id")
+  bloodGroup       BloodGroup    @map("blood_group")
+  unitsRequired    Int           @map("units_required")
+  urgency          Urgency       @default(NORMAL)
+  city             String
+  area             String
+  postalCode       String        @map("postal_code")
+  latitude         Float?
+  longitude        Float?
+  requiredDateTime DateTime      @map("required_date_time")
+  reason           String?
+  status           RequestStatus @default(OPEN)
+  createdAt        DateTime      @default(now()) @map("created_at")
+  updatedAt        DateTime      @updatedAt @map("updated_at")
+
+  requester       User             @relation("UserBloodRequests", fields: [requesterId], references: [id])
+  hospital        Hospital?        @relation(fields: [hospitalId], references: [id])
+  donorResponses  DonorResponse[]
+  donationRecords DonationRecord[]
+  aiAnalyses      AIAnalysis[]
+
+  @@index([bloodGroup, status, urgency, city, createdAt])
+  @@map("blood_requests")
+}
+
+model DonorResponse {
+  id               String          @id @default(uuid())
+  bloodRequestId   String          @map("blood_request_id")
+  donorId          String          @map("donor_id")
+  responseStatus   ResponseStatus  @default(ACCEPTED) @map("response_status")
+  previousStatus   ResponseStatus? @map("previous_status")
+  withdrawalReason String?         @map("withdrawal_reason")
+  respondedAt      DateTime        @default(now()) @map("responded_at")
+  notes            String?
+  createdAt        DateTime        @default(now()) @map("created_at")
+  updatedAt        DateTime        @updatedAt @map("updated_at")
+
+  bloodRequest BloodRequest @relation(fields: [bloodRequestId], references: [id], onDelete: Cascade)
+  donor        DonorProfile @relation(fields: [donorId], references: [id], onDelete: Cascade)
+
+  @@unique([bloodRequestId, donorId])
+  @@index([bloodRequestId, responseStatus])
+  @@map("donor_responses")
+}
+
+model DonationRecord {
+  id                 String             @id @default(uuid())
+  donorId            String             @map("donor_id")
+  bloodRequestId     String?            @map("blood_request_id")
+  hospitalId         String?            @map("hospital_id")
+  donationDate       DateTime           @map("donation_date")
+  units              Int                @default(1)
+  verificationStatus VerificationStatus @default(VERIFIED) @map("verification_status")
+  createdAt          DateTime           @default(now()) @map("created_at")
+
+  donor        DonorProfile  @relation(fields: [donorId], references: [id])
+  bloodRequest BloodRequest? @relation(fields: [bloodRequestId], references: [id])
+  hospital     Hospital?     @relation(fields: [hospitalId], references: [id])
+
+  @@map("donation_records")
+}
+
+model BloodInventory {
+  id             String          @id @default(uuid())
+  bloodBankId    String          @map("blood_bank_id")
+  bloodGroup     BloodGroup      @map("blood_group")
+  unitsAvailable Int             @map("units_available")
+  location       String
+  lastUpdated    DateTime        @default(now()) @map("last_updated")
+  status         InventoryStatus @default(AVAILABLE)
+  createdAt      DateTime        @default(now()) @map("created_at")
+  updatedAt      DateTime        @updatedAt @map("updated_at")
+
+  bloodBank BloodBank @relation(fields: [bloodBankId], references: [id], onDelete: Cascade)
+
+  @@index([bloodBankId, bloodGroup, status])
+  @@map("blood_inventory")
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String           @map("user_id")
+  type      NotificationType
+  title     String
+  message   String
+  isRead    Boolean          @default(false) @map("is_read")
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead, createdAt])
+  @@map("notifications")
+}
+
+model Verification {
+  id           String                 @id @default(uuid())
+  userId       String                 @map("user_id")
+  entityType   VerificationEntityType @map("entity_type")
+  status       VerificationStatus     @default(PENDING)
+  documentPath String?                @map("document_path")
+  reviewedBy   String?                @map("reviewed_by")
+  reviewedAt   DateTime?              @map("reviewed_at")
+  remarks      String?
+  createdAt    DateTime               @default(now()) @map("created_at")
+  updatedAt    DateTime               @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("verifications")
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  userId      String?  @map("user_id")
+  action      String
+  entityType  String   @map("entity_type")
+  entityId    String   @map("entity_id")
+  description String
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@map("audit_logs")
+}
+
+model EmergencyContact {
+  id           String   @id @default(uuid())
+  userId       String   @map("user_id")
+  name         String
+  phone        String
+  relationship String
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("emergency_contacts")
+}
+
+model AIAnalysis {
+  id           String         @id @default(uuid())
+  requestId    String         @map("request_id")
+  analysisType AIAnalysisType @map("analysis_type")
+  result       String         @db.Text
+  confidence   Float
+  modelVersion String         @map("model_version")
+  createdAt    DateTime       @default(now()) @map("created_at")
+
+  bloodRequest BloodRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@map("ai_analysis")
+}

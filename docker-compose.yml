@@ -1,0 +1,82 @@
+version: '3.8'
+
+services:
+  # 1. MySQL Database Container
+  mysql:
+    image: mysql:8.0
+    container_name: lifelink-mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: lifelink_db
+      MYSQL_USER: lifelink_user
+      MYSQL_PASSWORD: lifelink_pass
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -prootpassword || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # 2. Python FastAPI AI Engine Microservice
+  ai-service:
+    build:
+      context: ./ai-service
+      dockerfile: Dockerfile
+    container_name: lifelink-ai-service
+    restart: always
+    ports:
+      - "8000:8000"
+
+  # 3. ASP.NET Core .NET Verification Microservice
+  dotnet-service:
+    build:
+      context: ./dotnet-service
+      dockerfile: Dockerfile
+    container_name: lifelink-dotnet-service
+    restart: always
+    ports:
+      - "5001:5001"
+
+  # 4. Primary Node.js Express Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: lifelink-backend
+    restart: always
+    ports:
+      - "5000:5000"
+    environment:
+      PORT: 5000
+      NODE_ENV: production
+      DATABASE_URL: "mysql://lifelink_user:lifelink_pass@mysql:3306/lifelink_db"
+      JWT_SECRET: "lifelink_emergency_super_secret_jwt_key_2026"
+      JWT_EXPIRES_IN: "7d"
+      DOTNET_VERIFICATION_SERVICE_URL: "http://dotnet-service:5001"
+      PYTHON_AI_SERVICE_URL: "http://ai-service:8000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      ai-service:
+        condition: service_started
+      dotnet-service:
+        condition: service_started
+
+  # 5. React Web Frontend (Nginx Production Web Server)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: lifelink-frontend
+    restart: always
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+volumes:
+  mysql_data:
